@@ -4,12 +4,29 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
-import sys
+import os, sys
+import random
+import numpy as np
+import torch
 
 from cli import runner_registry
 from cli import arg_utils
 import platforms.registry
 
+def set_seed(seed: int = 0) -> None:
+    """set the random seed for multiple packages.
+    Args:
+        seed (int): the seed.
+
+    Returns:
+        None
+    """
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
 
 def main():
     # The welcome message.
@@ -59,4 +76,5 @@ def main():
 
 
 if __name__ == '__main__':
+    set_seed(seed=0)
     main()

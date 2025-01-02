@@ -159,7 +159,7 @@ class TrainingHparams(Hparams):
     gamma: float = None
     warmup_steps: str = None
     weight_decay: float = None
-    apex_fp16: bool = False
+    noise_level: float = 0.0
 
     _name: str = 'Training Hyperparameters'
     _description: str = 'Hyperparameters that determine how the model is trained.'
@@ -174,7 +174,7 @@ class TrainingHparams(Hparams):
     _data_order_seed: str = 'The random seed for the data order. If not set, the data order is random and unrepeatable.'
     _warmup_steps: str = "Steps of linear lr warmup at the start of training as epochs ('20ep') or iterations ('800it')"
     _weight_decay: str = 'The L2 penalty to apply to the weights.'
-    _apex_fp16: bool = 'Whether to train the model in float16 using the NVIDIA Apex library.'
+    _noise_level: str = 'The fraction of labels to corrupt with noise. Example: 0.2'
 
 
 @dataclass

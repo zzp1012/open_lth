@@ -26,7 +26,7 @@ class Platform(Hparams):
     def device_str(self):
         # GPU device.
         if torch.cuda.is_available() and torch.cuda.device_count() > 0:
-            device_ids = ','.join([str(x) for x in range(torch.cuda.device_count())])
+            device_ids = [str(x) for x in range(torch.cuda.device_count())][0] # only use the first GPU
             return f'cuda:{device_ids}'
 
         # CPU device.
@@ -39,7 +39,7 @@ class Platform(Hparams):
 
     @property
     def is_parallel(self):
-        return torch.cuda.is_available() and torch.cuda.device_count() > 1
+        return False
 
     @property
     def is_distributed(self):

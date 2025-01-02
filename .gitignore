@@ -1,3 +1,6 @@
 __pycache__
 *.pyc
 .*/
+
+# ignore .sh
+run_*.sh

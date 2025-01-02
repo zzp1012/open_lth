@@ -44,6 +44,8 @@ def get(model_hparams: ModelHparams, outputs=None):
 
     if model is None:
         raise ValueError('No such model: {}'.format(model_hparams.model_name))
+    
+    print(f"Model architecture: {model}")
 
     # Freeze various subsets of the network.
     bn_names = []

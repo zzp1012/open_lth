@@ -5,13 +5,15 @@
 
 import typing
 import warnings
+import torch
+import numpy as np
 
 from datasets.base import DataLoader
 import datasets.registry
 from foundations import hparams
 from foundations import paths
 from foundations.step import Step
-from models.base import Model, DataParallel, DistributedDataParallel
+from models.base import Model
 import models.registry
 from platforms.platform import get_platform
 from training.checkpointing import restore_checkpoint
@@ -19,11 +21,33 @@ from training import optimizers
 from training import standard_callbacks
 from training.metric_logger import MetricLogger
 
-try:
-    import apex
-    NO_APEX = False
-except ImportError:
-    NO_APEX = True
+
+def introduce_label_noise_batch(labels: torch.Tensor, 
+                                noise_level: float=0.2, 
+                                num_classes: int=10) -> torch.Tensor:
+    """Introduce label noise to a batch of labels using vectorized operations.
+
+    Args:
+        labels: The original labels.
+        noise_level: The fraction of labels to be changed.
+        num_classes: The number of classes in the dataset.
+
+    Returns:
+        The labels with noise introduced.
+    """
+    num_noisy_samples = int(noise_level * len(labels))
+    if num_noisy_samples == 0:
+        return labels
+
+    # Select random indices for introducing noise
+    indices = np.random.choice(len(labels), num_noisy_samples, replace=False)
+    
+    # Generate noisy labels
+    origin_labels = labels[indices]
+    noisy_labels = (origin_labels + torch.randint_like(origin_labels, low=1, high=num_classes)) % num_classes
+    labels[indices] = noisy_labels
+
+    return labels
 
 
 def train(
@@ -63,21 +87,12 @@ def train(
     model.to(get_platform().torch_device)
     optimizer = optimizers.get_optimizer(training_hparams, model)
     step_optimizer = optimizer
-    lr_schedule = optimizers.get_lr_schedule(training_hparams, optimizer, train_loader.iterations_per_epoch)
-
-    # Adapt for FP16.
-    if training_hparams.apex_fp16:
-        if NO_APEX: raise ImportError('Must install nvidia apex to use this model.')
-        model, step_optimizer = apex.amp.initialize(model, optimizer, loss_scale='dynamic', verbosity=0)
-
-    # Handle parallelism if applicable.
-    if get_platform().is_distributed:
-        model = DistributedDataParallel(model, device_ids=[get_platform().rank])
-    elif get_platform().is_parallel:
-        model = DataParallel(model)
-
+    
     # Get the random seed for the data order.
     data_order_seed = training_hparams.data_order_seed
+    
+    # get the number of classes
+    n_classes = train_loader.dataset.num_classes()
 
     # Restore the model from a saved checkpoint if the checkpoint exists.
     cp_step, cp_logger = restore_checkpoint(output_location, model, optimizer, train_loader.iterations_per_epoch)
@@ -85,7 +100,6 @@ def train(
     logger = cp_logger or MetricLogger()
     with warnings.catch_warnings():  # Filter unnecessary warning.
         warnings.filterwarnings("ignore", category=UserWarning)
-        for _ in range(start_step.iteration): lr_schedule.step()
 
     # Determine when to end training.
     end_step = end_step or Step.from_str(training_hparams.training_steps, train_loader.iterations_per_epoch)
@@ -112,21 +126,21 @@ def train(
             # Otherwise, train.
             examples = examples.to(device=get_platform().torch_device)
             labels = labels.to(device=get_platform().torch_device)
+            
+            # Introduce label noise
+            noisy_labels = introduce_label_noise_batch(
+                labels, noise_level=training_hparams.noise_level, num_classes=n_classes
+            )
 
             step_optimizer.zero_grad()
             model.train()
-            loss = model.loss_criterion(model(examples), labels)
-            if training_hparams.apex_fp16:
-                with apex.amp.scale_loss(loss, optimizer) as scaled_loss:
-                    scaled_loss.backward()
-            else:
-                loss.backward()
+            loss = model.loss_criterion(model(examples), noisy_labels)
+            loss.backward()
 
             # Step forward. Ignore extraneous warnings that the lr_schedule generates.
             step_optimizer.step()
             with warnings.catch_warnings():  # Filter unnecessary warning.
                 warnings.filterwarnings("ignore", category=UserWarning)
-                lr_schedule.step()
 
     get_platform().barrier()
 
